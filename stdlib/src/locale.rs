@@ -1,6 +1,6 @@
 pub(crate) use _locale::make_module;
 
-#[cfg(windows)]
+#[cfg(any(windows, target_arch="wasm32"))]
 #[repr(C)]
 struct lconv {
     decimal_point: *mut libc::c_char,
@@ -29,12 +29,12 @@ struct lconv {
     int_n_sign_posn: libc::c_char,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_arch="wasm32"))]
 extern "C" {
     fn localeconv() -> *mut lconv;
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_arch = "wasm32")))]
 use libc::localeconv;
 
 #[pymodule]
@@ -46,7 +46,7 @@ mod _locale {
         PyObjectRef, PyResult, VirtualMachine,
     };
     use std::{
-        ffi::{CStr, CString},
+        ffi::{CStr, CString, c_char},
         ptr,
     };
 
@@ -61,22 +61,47 @@ mod _locale {
         THOUSEP, T_FMT, T_FMT_AMPM, YESEXPR,
     };
 
+    #[cfg(target_arch = "wasm32")]
+    #[pyattr]
+    const LC_ALL: i32 = 0;
+    
+    #[cfg(target_arch = "wasm32")]
+    #[pyattr]
+    const LC_COLLATE: i32 = 1;
+    
+    #[cfg(target_arch = "wasm32")]
+    #[pyattr]
+    const LC_CTYPE: i32 = 2;
+    
+    #[cfg(target_arch = "wasm32")]
+    #[pyattr]
+    const LC_MONETARY: i32 = 3;
+    
+    #[cfg(target_arch = "wasm32")]
+    #[pyattr]
+    const LC_NUMERIC: i32 = 4;
+    
+    #[cfg(target_arch = "wasm32")]
+    #[pyattr]
+    const LC_TIME: i32 = 5;
+
+    #[cfg(not(target_arch="wasm32"))]
     #[pyattr]
     use libc::{LC_ALL, LC_COLLATE, LC_CTYPE, LC_MONETARY, LC_NUMERIC, LC_TIME};
 
     #[pyattr(name = "CHAR_MAX")]
     fn char_max(vm: &VirtualMachine) -> PyIntRef {
-        vm.ctx.new_int(libc::c_char::MAX)
+        vm.ctx.new_int(c_char::MAX)
     }
 
-    unsafe fn copy_grouping(group: *const libc::c_char, vm: &VirtualMachine) -> PyListRef {
+    unsafe fn copy_grouping(group: *const c_char, vm: &VirtualMachine) -> PyListRef {
         let mut group_vec: Vec<PyObjectRef> = Vec::new();
         if group.is_null() {
             return vm.ctx.new_list(group_vec);
         }
 
         let mut ptr = group;
-        while ![0, libc::c_char::MAX].contains(&*ptr) {
+        while ![0, c_char::MAX].contains(&*ptr) {
             let val = vm.ctx.new_int(*ptr);
             group_vec.push(val.into());
             ptr = ptr.add(1);
@@ -88,7 +113,7 @@ mod _locale {
         vm.ctx.new_list(group_vec)
     }
 
-    unsafe fn pystr_from_raw_cstr(vm: &VirtualMachine, raw_ptr: *const libc::c_char) -> PyResult {
+    unsafe fn pystr_from_raw_cstr(vm: &VirtualMachine, raw_ptr: *const c_char) -> PyResult {
         let slice = unsafe { CStr::from_ptr(raw_ptr) };
         let string = slice
             .to_str()
